@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require 'forwardable'
 require 'roo/excelx/extractor'
 
@@ -5,7 +6,7 @@ module Roo
   class Excelx
     class SheetDoc < Excelx::Extractor
       extend Forwardable
-      delegate [:styles, :workbook, :shared_strings, :base_date] => :@shared
+      delegate [:styles, :workbook, :shared_strings, :base_date, :base_timestamp] => :@shared
 
       def initialize(path, relationships, shared, options = {})
         super(path)
@@ -41,7 +42,7 @@ module Roo
         row_xml.children.each do |cell_element|
           # If you're sure you're not going to need this hyperlinks you can discard it
           hyperlinks = unless @options[:no_hyperlinks]
-                         key = ::Roo::Utils.ref_to_key(cell_element['r'])
+                         key = ::Roo::Utils.ref_to_key(cell_element['r'.freeze])
                          hyperlinks(@relationships)[key]
                        end
 
@@ -82,34 +83,41 @@ module Roo
       #
       # Returns a type of <Excelx::Cell>.
       def cell_from_xml(cell_xml, hyperlink)
-        coordinate = extract_coordinate(cell_xml['r'])
-        return Excelx::Cell::Empty.new(coordinate) if cell_xml.children.empty?
+        coordinate = Roo::Utils.extract_coordinate(cell_xml['r'.freeze])
+        cell_children = cell_xml.children
+        return Excelx::Cell::Empty.new(coordinate) if cell_children.empty?
 
         # NOTE: This is error prone, to_i will silently turn a nil into a 0.
         #       This works by coincidence because Format[0] is General.
-        style = cell_xml['s'].to_i
-        format = styles.style_format(style)
-        value_type = cell_value_type(cell_xml['t'], format)
+        style = cell_xml['s'.freeze].to_i
         formula = nil
 
-        cell_xml.children.each do |cell|
+        cell_children.each do |cell|
           case cell.name
-          when 'is'
-            content_arr = cell.search('t').map(&:content)
-            unless content_arr.empty?
-              return Excelx::Cell.create_cell(:string, content_arr.join(''), formula, style, hyperlink, coordinate)
+          when 'is'.freeze
+            content = +""
+            cell.children.each do |inline_str|
+              if inline_str.name == 't'.freeze
+                content << inline_str.content
+              end
             end
-          when 'f'
+            unless content.empty?
+              return Excelx::Cell.create_cell(:string, content, formula, style, hyperlink, coordinate)
+            end
+          when 'f'.freeze
             formula = cell.content
-          when 'v'
-            return create_cell_from_value(value_type, cell, formula, format, style, hyperlink, base_date, coordinate)
+          when 'v'.freeze
+            format = styles.style_format(style)
+            value_type = cell_value_type(cell_xml['t'.freeze], format)
+
+            return create_cell_from_value(value_type, cell, formula, format, style, hyperlink, coordinate)
           end
         end
 
         Excelx::Cell::Empty.new(coordinate)
       end
 
-      def create_cell_from_value(value_type, cell, formula, format, style, hyperlink, base_date, coordinate)
+      def create_cell_from_value(value_type, cell, formula, format, style, hyperlink, coordinate)
         # NOTE: format.to_s can replace excelx_type as an argument for
         #       Cell::Time, Cell::DateTime, Cell::Date or Cell::Number, but
         #       it will break some brittle tests.
@@ -148,7 +156,8 @@ module Roo
                       else
                         :date
                       end
-          Excelx::Cell.create_cell(cell_type, cell.content, formula, excelx_type, style, hyperlink, base_date, coordinate)
+          base_value = cell_type == :date ? base_date : base_timestamp
+          Excelx::Cell.create_cell(cell_type, cell_content, formula, excelx_type, style, hyperlink, base_value, coordinate)
         when :date
           Excelx::Cell.create_cell(value_type, cell.content, formula, excelx_type, style, hyperlink, base_date, coordinate)
         else
@@ -156,18 +165,12 @@ module Roo
         end
       end
 
-      def extract_coordinate(coordinate)
-        row, column = ::Roo::Utils.split_coordinate(coordinate)
-
-        Excelx::Coordinate.new(row, column)
-      end
-
       def extract_hyperlinks(relationships)
         return {} unless (hyperlinks = doc.xpath('/worksheet/hyperlinks/hyperlink'))
 
         Hash[hyperlinks.map do |hyperlink|
-          if hyperlink.attribute('id') && (relationship = relationships[hyperlink.attribute('id').text])
-            [::Roo::Utils.ref_to_key(hyperlink.attributes['ref'].to_s), relationship.attribute('Target').text]
+          if hyperlink.attribute('id'.freeze) && (relationship = relationships[hyperlink.attribute('id'.freeze).text])
+            [::Roo::Utils.ref_to_key(hyperlink.attributes['ref'.freeze].to_s), relationship.attribute('Target'.freeze).text]
           end
         end.compact]
       end
@@ -176,7 +179,7 @@ module Roo
         # Extract merged ranges from xml
         merges = {}
         doc.xpath('/worksheet/mergeCells/mergeCell').each do |mergecell_xml|
-          tl, br = mergecell_xml['ref'].split(/:/).map { |ref| ::Roo::Utils.ref_to_key(ref) }
+          tl, br = mergecell_xml['ref'.freeze].split(/:/).map { |ref| ::Roo::Utils.ref_to_key(ref) }
           for row in tl[0]..br[0] do
             for col in tl[1]..br[1] do
               next if row == tl[0] && col == tl[1]
@@ -191,10 +194,11 @@ module Roo
       end
 
       def extract_cells(relationships)
-        extracted_cells = Hash[doc.xpath('/worksheet/sheetData/row/c').map do |cell_xml|
-          key = ::Roo::Utils.ref_to_key(cell_xml['r'])
-          [key, cell_from_xml(cell_xml, hyperlinks(relationships)[key])]
-        end]
+        extracted_cells = {}
+        doc.xpath('/worksheet/sheetData/row/c').each do |cell_xml|
+          key = ::Roo::Utils.ref_to_key(cell_xml['r'.freeze])
+          extracted_cells[key] = cell_from_xml(cell_xml, hyperlinks(relationships)[key])
+        end
 
         expand_merged_ranges(extracted_cells) if @options[:expand_merged_ranges]
 
@@ -203,7 +207,7 @@ module Roo
 
       def extract_dimensions
         Roo::Utils.each_element(@path, 'dimension') do |dimension|
-          return dimension.attributes['ref'].value
+          return dimension.attributes['ref'.freeze].value
         end
       end
     end

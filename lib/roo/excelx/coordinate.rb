@@ -6,6 +6,12 @@ module Roo
       def initialize(row, column)
         @row = row
         @column = column
+        @array = [row, column].freeze
+        freeze
+      end
+
+      def to_a
+        @array
       end
     end
   end
