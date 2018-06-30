@@ -5,6 +5,7 @@ module Roo
     LETTERS = ('A'..'Z').to_a
 
     def extract_coordinate(str)
+      str = str.freeze
       @extract_coordinate ||= {}
       @extract_coordinate[str] ||= extract_coord(str)
     end
@@ -25,7 +26,7 @@ module Roo
           fail ArgumentError
         end
       end
-      fail ArgumentError if letter_num == 0
+      fail ArgumentError if letter_num == 0 || !num_only
       Excelx::Coordinate.new(num,letter_num)
     end
 

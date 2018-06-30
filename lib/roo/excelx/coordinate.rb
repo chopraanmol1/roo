@@ -6,12 +6,10 @@ module Roo
       def initialize(row, column)
         @row = row
         @column = column
-        @array = [row, column].freeze
-        freeze
       end
 
       def to_a
-        @array
+        @array ||= [row, column].freeze
       end
     end
   end

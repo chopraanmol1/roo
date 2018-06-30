@@ -96,16 +96,11 @@ module Roo
 
         def create_datetime(base_timestamp, value)
           timestamp = (base_timestamp + (value.to_f.round(6) * SECONDS_IN_DAY)).round(0)
-          # datetime_string = date.strftime('%Y-%m-%d %H:%M:%S.%N')
-          t = ::Time.at(timestamp)
+          # Ideally it should return Time.at(timestamp).to_datetime
+          # But that will be breaking change
+          t = ::Time.at(timestamp).utc
 
           ::DateTime.civil(t.year, t.month, t.day, t.hour, t.min, t.sec)
-        end
-
-        def round_datetime(datetime_string)
-          /(?<yyyy>\d+)-(?<mm>\d+)-(?<dd>\d+) (?<hh>\d+):(?<mi>\d+):(?<ss>\d+.\d+)/ =~ datetime_string
-
-          ::Time.new(yyyy, mm, dd, hh, mi, ss.to_r).round(0)
         end
       end
     end

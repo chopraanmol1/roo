@@ -6,7 +6,7 @@ module Roo
   class Excelx
     class SheetDoc < Excelx::Extractor
       extend Forwardable
-      delegate [:styles, :workbook, :shared_strings, :base_date, :base_timestamp] => :@shared
+      delegate [:workbook, :shared_strings] => :@shared
 
       def initialize(path, relationships, shared, options = {})
         super(path)
@@ -84,15 +84,15 @@ module Roo
       # Returns a type of <Excelx::Cell>.
       def cell_from_xml(cell_xml, hyperlink)
         coordinate = Roo::Utils.extract_coordinate(cell_xml['r'.freeze])
-        cell_children = cell_xml.children
-        return Excelx::Cell::Empty.new(coordinate) if cell_children.empty?
+        cell_xml_children = cell_xml.children
+        return Excelx::Cell::Empty.new(coordinate) if cell_xml_children.empty?
 
         # NOTE: This is error prone, to_i will silently turn a nil into a 0.
         #       This works by coincidence because Format[0] is General.
         style = cell_xml['s'.freeze].to_i
         formula = nil
 
-        cell_children.each do |cell|
+        cell_xml_children.each do |cell|
           case cell.name
           when 'is'.freeze
             content = +""
@@ -102,12 +102,12 @@ module Roo
               end
             end
             unless content.empty?
-              return Excelx::Cell.create_cell(:string, content, formula, style, hyperlink, coordinate)
+              return Excelx::Cell.cell_class(:string).new(content, formula, style, hyperlink, coordinate)
             end
           when 'f'.freeze
             formula = cell.content
           when 'v'.freeze
-            format = styles.style_format(style)
+            format = style_format(style)
             value_type = cell_value_type(cell_xml['t'.freeze], format)
 
             return create_cell_from_value(value_type, cell, formula, format, style, hyperlink, coordinate)
@@ -133,11 +133,12 @@ module Roo
         #       3. formula
         case value_type
         when :shared
-          value = shared_strings.use_html?(cell.content.to_i) ? shared_strings.to_html[cell.content.to_i] : shared_strings[cell.content.to_i]
-          Excelx::Cell.create_cell(:string, value, formula, style, hyperlink, coordinate)
+          cell_content = cell.content.to_i
+          value = shared_strings.use_html?(cell_content) ? shared_strings.to_html[cell_content] : shared_strings[cell_content]
+          Excelx::Cell.cell_class(:string).new(value, formula, style, hyperlink, coordinate)
         when :boolean, :string
           value = cell.content
-          Excelx::Cell.create_cell(value_type, value, formula, style, hyperlink, coordinate)
+          Excelx::Cell.cell_class(value_type).new(value, formula, style, hyperlink, coordinate)
         when :time, :datetime
           cell_content = cell.content.to_f
           # NOTE: A date will be a whole number. A time will have be > 1. And
@@ -157,11 +158,11 @@ module Roo
                         :date
                       end
           base_value = cell_type == :date ? base_date : base_timestamp
-          Excelx::Cell.create_cell(cell_type, cell_content, formula, excelx_type, style, hyperlink, base_value, coordinate)
+          Excelx::Cell.cell_class(cell_type).new(cell_content, formula, excelx_type, style, hyperlink, base_value, coordinate)
         when :date
-          Excelx::Cell.create_cell(value_type, cell.content, formula, excelx_type, style, hyperlink, base_date, coordinate)
+          Excelx::Cell.cell_class(:date).new(cell.content, formula, excelx_type, style, hyperlink, base_date, coordinate)
         else
-          Excelx::Cell.create_cell(:number, cell.content, formula, excelx_type, style, hyperlink, coordinate)
+          Excelx::Cell.cell_class(:number).new(cell.content, formula, excelx_type, style, hyperlink, coordinate)
         end
       end
 
@@ -209,6 +210,22 @@ module Roo
         Roo::Utils.each_element(@path, 'dimension') do |dimension|
           return dimension.attributes['ref'.freeze].value
         end
+      end
+
+      def style_format(style)
+        @shared.styles.style_format(style)
+      end
+
+      def base_date
+        @shared.base_date
+      end
+
+      def base_timestamp
+        @shared.base_timestamp
+      end
+
+      def shared_strings
+        @shared.shared_strings
       end
     end
   end
